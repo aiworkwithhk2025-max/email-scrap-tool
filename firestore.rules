@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check auth
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to ensure user is accessing their own data
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Rules for the Users Collection
+    match /users/{userId} {
+      // Users can only read/write their own document (though we aren't storing user profiles explicitly in this app)
+      allow read, write: if isAuthenticated() && isOwner(userId);
+
+      // Rules for the Scrapes Subcollection
+      match /scrapes/{scrapeId} {
+        // Allow read: If user owns the parent document
+        allow read: if isAuthenticated() && isOwner(userId);
+        
+        // Allow create: 
+        // 1. Owner only
+        // 2. Validate data structure (optional but good practice)
+        allow create: if isAuthenticated() && isOwner(userId)
+                      && request.resource.data.url is string
+                      && request.resource.data.emails is list;
+
+        // Allow delete: Owner only
+        allow delete: if isAuthenticated() && isOwner(userId);
+        
+        // Disallow update: Scrapes are historical records, no need to edit them.
+        // This helps simplicity.
+        allow update: if false;
+      }
+    }
+  }
+}
