@@ -3,21 +3,27 @@
  * 
  * Free Tier Strategy:
  * Browser-based fetching is blocked by CORS policies on most websites.
- * Firebase Cloud Functions require the "Blaze" (Paid) plan for outbound network requests 
- * to non-Google services.
+ * Firebase Cloud Functions require the "Blaze" (Paid) plan for outbound network requests.
  * 
- * Solution: We use a public CORS proxy (corsproxy.io) to fetch the HTML content
- * directly from the client. This keeps the architecture 100% Serverless and Free.
+ * Solution: We use a public CORS proxy (corsproxy.io) to fetch the HTML content.
  */
 
-const EMAIL_REGEX = /[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+/gi;
+// REGEX EXPLANATION:
+// Emails: Must end with a dot followed by at least 2 letters (e.g., .com, .io).
+// This strictly excludes package versions like "jquery@3.7.1" because "1" is not a letter.
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+
+// Phone Numbers: Matches common formats like (555) 555-5555, 555-555-5555, +1 555 555 5555
+// Minimum length checks help reduce false positives (like dates).
+const PHONE_REGEX = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+
 const PROXY_URL = 'https://corsproxy.io/?';
 
 // Rate limiting state
 let lastRequestTime = 0;
 const RATE_LIMIT_MS = 5000; // 5 seconds
 
-export const extractEmailsFromUrl = async (targetUrl: string): Promise<string[]> => {
+export const extractContactsFromUrl = async (targetUrl: string): Promise<{ emails: string[], phoneNumbers: string[] }> => {
   // 1. Rate Limiting Check
   const now = Date.now();
   if (now - lastRequestTime < RATE_LIMIT_MS) {
@@ -33,7 +39,6 @@ export const extractEmailsFromUrl = async (targetUrl: string): Promise<string[]>
 
   try {
     // 3. Fetch via Proxy
-    // We append the target URL to the proxy service
     const response = await fetch(`${PROXY_URL}${encodeURIComponent(validUrl)}`);
     
     if (!response.ok) {
@@ -42,24 +47,37 @@ export const extractEmailsFromUrl = async (targetUrl: string): Promise<string[]>
 
     const htmlText = await response.text();
 
-    // 4. Parse Emails with Regex
-    const found = htmlText.match(EMAIL_REGEX);
+    // 4. Parse Emails
+    const foundEmails = htmlText.match(EMAIL_REGEX) || [];
     
-    if (!found) {
-      return [];
-    }
+    // 5. Parse Phone Numbers
+    const foundPhones = htmlText.match(PHONE_REGEX) || [];
 
-    // 5. Clean and Deduplicate
-    // Filter out common false positives like image extensions or simple 'user@domain' placeholders if needed.
-    const uniqueEmails = Array.from(new Set(found.map(e => e.toLowerCase())));
+    // 6. Clean and Deduplicate Emails
+    const uniqueEmails = Array.from(new Set(foundEmails.map(e => e.toLowerCase())));
     
-    // Basic filter to remove image files mistagged as emails (e.g., image@2x.png)
+    // Filter out common false positives (images, known libraries if regex leaks)
     const filteredEmails = uniqueEmails.filter(email => {
         const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.js', '.css'];
+        // Double check to ensure no numeric-ending domains slipped through (redundant but safe)
+        const domain = email.split('@')[1];
+        if (!domain || /\d+$/.test(domain)) return false; 
+        
         return !invalidExtensions.some(ext => email.endsWith(ext));
     });
 
-    return filteredEmails;
+    // 7. Clean and Deduplicate Phones
+    const uniquePhones = Array.from(new Set(foundPhones.map(p => p.trim())));
+    // Filter out potential years or short noise
+    const filteredPhones = uniquePhones.filter(p => {
+        const digits = p.replace(/\D/g, '');
+        return digits.length >= 10 && digits.length <= 15;
+    });
+
+    return {
+        emails: filteredEmails,
+        phoneNumbers: filteredPhones
+    };
 
   } catch (error: any) {
     console.error("Scrape failed:", error);

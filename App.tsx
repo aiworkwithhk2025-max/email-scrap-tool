@@ -8,7 +8,6 @@ import {
   collection, 
   addDoc, 
   query, 
-  where, 
   orderBy, 
   limit, 
   getDocs,
@@ -16,7 +15,7 @@ import {
   doc
 } from './services/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { extractEmailsFromUrl } from './services/scraperService';
+import { extractContactsFromUrl } from './services/scraperService';
 import { ScrapeResult } from './types';
 import { HistorySidebar } from './components/HistorySidebar';
 import { ResultsCard } from './components/ResultsCard';
@@ -26,12 +25,13 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [urlInput, setUrlInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false); // New state for auth loading
   const [currentResult, setCurrentResult] = useState<ScrapeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ScrapeResult[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSaved, setIsSaved] = useState(false); // Track if current result is saved
+  const [isSaved, setIsSaved] = useState(false); 
 
   // 1. Auth Listener
   useEffect(() => {
@@ -57,7 +57,15 @@ const App: React.FC = () => {
       const querySnapshot = await getDocs(q);
       const fetchedHistory: ScrapeResult[] = [];
       querySnapshot.forEach((doc) => {
-        fetchedHistory.push({ id: doc.id, ...doc.data() } as ScrapeResult);
+        const data = doc.data();
+        fetchedHistory.push({ 
+            id: doc.id, 
+            url: data.url,
+            emails: data.emails || [],
+            phoneNumbers: data.phoneNumbers || [],
+            timestamp: data.timestamp,
+            userId: data.userId
+        });
       });
       setHistory(fetchedHistory);
     } catch (err) {
@@ -67,10 +75,33 @@ const App: React.FC = () => {
 
   // 3. Login / Logout
   const handleLogin = async () => {
+    // Safety check: Prevent login attempt if config is still placeholder
+    if (auth.app.options.apiKey?.toString().includes("PLACEHOLDER")) {
+      setError("Setup Required: Please update services/firebase.ts with your real Firebase Project credentials.");
+      return;
+    }
+
+    setError(null);
+    setIsLoggingIn(true);
+    
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Login failed", err);
+      
+      // Handle specific error codes to be more user-friendly
+      if (err.code === 'auth/cancelled-popup-request') {
+        // User just closed the popup, not a real error
+        setError(null);
+      } else if (err.code === 'auth/network-request-failed') {
+        setError("Network Error: Could not connect to Firebase. Please check your config and internet connection.");
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError(null);
+      } else {
+        setError("Authentication failed. Please try again.");
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -92,11 +123,12 @@ const App: React.FC = () => {
     setIsSaved(false);
 
     try {
-      const emails = await extractEmailsFromUrl(urlInput);
+      const { emails, phoneNumbers } = await extractContactsFromUrl(urlInput);
       
       const result: ScrapeResult = {
         url: urlInput,
         emails,
+        phoneNumbers,
         timestamp: Date.now(),
       };
       
@@ -115,7 +147,6 @@ const App: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // Save to subcollection: users/{uid}/scrapes
       const docRef = await addDoc(collection(db, 'users', user.uid, 'scrapes'), {
         ...currentResult,
         userId: user.uid
@@ -123,7 +154,6 @@ const App: React.FC = () => {
       
       setIsSaved(true);
       
-      // Optimistic update of history
       const savedItem = { ...currentResult, id: docRef.id };
       setHistory(prev => [savedItem, ...prev].slice(0, 5));
 
@@ -163,7 +193,7 @@ const App: React.FC = () => {
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         onSelect={(item) => {
           setCurrentResult(item);
-          setIsSaved(true); // Since it comes from history, it is saved
+          setIsSaved(true); 
           setIsSidebarOpen(false);
         }}
         onDelete={handleDeleteHistory}
@@ -193,9 +223,11 @@ const App: React.FC = () => {
             {!user ? (
               <button 
                 onClick={handleLogin}
-                className="bg-gray-900 text-white px-5 py-2 rounded-full font-medium text-sm hover:bg-gray-800 transition-all hover:shadow-lg"
+                disabled={isLoggingIn}
+                className={`bg-gray-900 text-white px-5 py-2 rounded-full font-medium text-sm transition-all hover:shadow-lg flex items-center gap-2 ${isLoggingIn ? 'opacity-75 cursor-not-allowed' : 'hover:bg-gray-800'}`}
               >
-                Sign In with Google
+                {isLoggingIn && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isLoggingIn ? 'Signing in...' : 'Sign In with Google'}
               </button>
             ) : (
               <div className="flex items-center gap-3">
@@ -221,10 +253,10 @@ const App: React.FC = () => {
           
           <div className="text-center mb-10 space-y-3">
             <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-              Extract emails from any website.
+              Extract business contacts.
             </h1>
             <p className="text-lg text-gray-500 max-w-2xl mx-auto">
-              A free, serverless tool to find contact information instantly. 
+              A free, serverless tool to find business emails and phone numbers instantly. 
               { !user && <span className="block mt-1 text-brand-600 font-medium">Sign in to save your history.</span> }
             </p>
           </div>
@@ -252,14 +284,14 @@ const App: React.FC = () => {
                   <span>Scanning...</span>
                 </>
               ) : (
-                'Find Emails'
+                'Find Contacts'
               )}
             </button>
           </form>
 
           {/* Error Message */}
           {error && (
-             <div className="mt-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm border border-red-100 max-w-2xl w-full text-center">
+             <div className="mt-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm border border-red-100 max-w-2xl w-full text-center animate-fade-in-up">
                 {error}
              </div>
           )}

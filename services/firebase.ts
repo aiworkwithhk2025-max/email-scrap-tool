@@ -5,7 +5,6 @@ import { getFirestore, collection, addDoc, query, where, orderBy, limit, getDocs
 // ------------------------------------------------------------------
 // CONFIGURATION
 // Replace these values with your actual Firebase Project keys.
-// For a real app, use environment variables (process.env.REACT_APP_...)
 // ------------------------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyD-PLACEHOLDER-KEY-HERE",
@@ -15,6 +14,15 @@ const firebaseConfig = {
   messagingSenderId: "123456789",
   appId: "1:123456789:web:abcdef"
 };
+
+// Validation check to help developers
+if (firebaseConfig.apiKey.includes("PLACEHOLDER")) {
+  console.warn(
+    "%c CRITICAL CONFIGURATION MISSING ",
+    "background: #ff0000; color: #ffffff; font-size: 14px; font-weight: bold; padding: 4px;",
+    "\nPlease update 'services/firebase.ts' with your actual Firebase project configuration values."
+  );
+}
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);

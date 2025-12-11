@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScrapeResult } from '../types';
-import { Clock, Trash2, ExternalLink, ChevronLeft } from 'lucide-react';
+import { Clock, Trash2, ChevronLeft } from 'lucide-react';
 
 interface HistorySidebarProps {
   isOpen: boolean;
@@ -40,36 +40,43 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <p className="mt-1">Scrape a site and click "Save" to build your list.</p>
             </div>
           ) : (
-            history.map((item) => (
-              <div 
-                key={item.id} 
-                className="group relative p-3 rounded-lg border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all cursor-pointer bg-white shadow-sm"
-                onClick={() => onSelect(item)}
-              >
-                <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-medium text-gray-800 text-sm truncate max-w-[180px]" title={item.url}>
-                    {item.url.replace(/^https?:\/\/(www\.)?/, '')}
-                  </h3>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if(item.id) onDelete(item.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+            history.map((item) => {
+              // Backward compatibility for items without phoneNumbers
+              const phoneCount = item.phoneNumbers ? item.phoneNumbers.length : 0;
+              const emailCount = item.emails ? item.emails.length : 0;
+              const total = phoneCount + emailCount;
+
+              return (
+                <div 
+                  key={item.id} 
+                  className="group relative p-3 rounded-lg border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all cursor-pointer bg-white shadow-sm"
+                  onClick={() => onSelect(item)}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-medium text-gray-800 text-sm truncate max-w-[180px]" title={item.url}>
+                      {item.url.replace(/^https?:\/\/(www\.)?/, '')}
+                    </h3>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if(item.id) onDelete(item.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-end">
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                          {total} contacts
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                          {new Date(item.timestamp).toLocaleDateString()}
+                      </span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-end">
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                        {item.emails.length} found
-                    </span>
-                    <span className="text-[10px] text-gray-400">
-                        {new Date(item.timestamp).toLocaleDateString()}
-                    </span>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>

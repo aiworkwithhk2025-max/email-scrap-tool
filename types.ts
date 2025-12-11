@@ -2,6 +2,7 @@ export interface ScrapeResult {
   id?: string;
   url: string;
   emails: string[];
+  phoneNumbers: string[];
   timestamp: number;
   userId?: string;
 }
